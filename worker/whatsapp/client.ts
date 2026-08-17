@@ -181,7 +181,8 @@ export class WhatsAppClient {
     const jid = `${cleanPhone}@s.whatsapp.net`;
 
     logger.info({ accountId: this.accountId, jid }, 'Sending WhatsApp text message');
-    return this.socket.sendMessage(jid, { text: message });
+    const result = await this.socket.sendMessage(jid, { text: message });
+    return result || null;
   }
 
   async disconnect(): Promise<void> {

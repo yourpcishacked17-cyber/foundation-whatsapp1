@@ -41,13 +41,13 @@ export async function processSendMessageJob(job: Job<SendMessageJobPayload>): Pr
       where: { id: messageId },
       data: {
         status: 'SENT',
-        providerMessageId: sendResult.messageId || null,
+        providerMessageId: sendResult?.key?.id || null,
         sentAt: new Date(),
         errorMessage: null
       }
     });
 
-    logger.info({ messageId, recipient, providerId: sendResult.messageId }, '✅ WhatsApp message delivered via Baileys');
+    logger.info({ messageId, recipient, providerId: sendResult?.key?.id }, '✅ WhatsApp message delivered via Baileys');
 
   } catch (error: any) {
     const errorMsg = error?.message || 'Unknown WhatsApp send error';
