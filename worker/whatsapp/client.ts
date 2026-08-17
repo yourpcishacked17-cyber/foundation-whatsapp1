@@ -6,7 +6,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { WhatsAppSessionStore } from './sessionStore.js';
-import { prisma } from '../../src/lib/prisma.js';
+import { prisma, isPrismaAvailable } from '../../src/lib/prisma.js';
 import { logger } from '../../src/lib/logger.js';
 import { fallbackAccounts } from '../../src/modules/accounts/accounts.service.js';
 
@@ -71,22 +71,35 @@ export class WhatsAppClient {
           });
 
           // Save to memory cache
-          const mem = fallbackAccounts.get(this.accountId);
+          let mem = fallbackAccounts.get(this.accountId);
           if (mem) {
             mem.status = 'SCAN_QR';
             mem.connected = false;
             mem.qrCode = qrDataUrl;
-          }
-
-          // Save to database
-          await prisma.whatsAppAccount.update({
-            where: { id: this.accountId },
-            data: {
+          } else {
+            fallbackAccounts.set(this.accountId, {
+              id: this.accountId,
+              name: 'TFC Official Sender',
+              phoneNumber: null,
               status: 'SCAN_QR',
               connected: false,
-              qrCode: qrDataUrl
-            }
-          }).catch(() => {});
+              qrCode: qrDataUrl,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+          }
+
+          // Save to database if available
+          if (isPrismaAvailable) {
+            await prisma.whatsAppAccount.update({
+              where: { id: this.accountId },
+              data: {
+                status: 'SCAN_QR',
+                connected: false,
+                qrCode: qrDataUrl
+              }
+            }).catch(() => {});
+          }
         } catch (qrErr: any) {
           logger.error({ qrErr: qrErr.message }, 'Failed to convert QR code to DataURL');
         }
@@ -100,32 +113,45 @@ export class WhatsAppClient {
 
         logger.info({ accountId: this.accountId, phone }, '✅ Official WhatsApp connection established (OPEN)');
 
-        const mem = fallbackAccounts.get(this.accountId);
+        let mem = fallbackAccounts.get(this.accountId);
         if (mem) {
           mem.status = 'CONNECTED';
           mem.connected = true;
-          mem.phoneNumber = phone || '923001234567';
+          mem.phoneNumber = phone || '923333439458';
           mem.qrCode = null;
-        }
-
-        await prisma.whatsAppAccount.update({
-          where: { id: this.accountId },
-          data: {
+        } else {
+          fallbackAccounts.set(this.accountId, {
+            id: this.accountId,
+            name: 'TFC Official Sender',
+            phoneNumber: phone || '923333439458',
             status: 'CONNECTED',
             connected: true,
-            phoneNumber: phone || undefined,
             qrCode: null,
-            lastSeenAt: new Date()
-          }
-        }).catch(() => {});
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
 
-        await prisma.whatsAppSession.updateMany({
-          where: { accountId: this.accountId },
-          data: {
-            sessionStatus: 'AUTHENTICATED',
-            lastConnectedAt: new Date()
-          }
-        }).catch(() => {});
+        if (isPrismaAvailable) {
+          await prisma.whatsAppAccount.update({
+            where: { id: this.accountId },
+            data: {
+              status: 'CONNECTED',
+              connected: true,
+              phoneNumber: phone || undefined,
+              qrCode: null,
+              lastSeenAt: new Date()
+            }
+          }).catch(() => {});
+
+          await prisma.whatsAppSession.updateMany({
+            where: { accountId: this.accountId },
+            data: {
+              sessionStatus: 'AUTHENTICATED',
+              lastConnectedAt: new Date()
+            }
+          }).catch(() => {});
+        }
       }
 
       if (connection === 'close') {
