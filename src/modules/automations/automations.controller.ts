@@ -4,7 +4,7 @@ import { AutomationsService } from './automations.service.js';
 import { AuthenticatedRequest } from '../../middleware/auth.js';
 
 const createRuleSchema = z.object({
-  accountId: z.string().uuid(),
+  accountId: z.string().min(1),
   triggerType: z.enum([
     'ADMISSION_CONFIRMATION',
     'FEE_DUE_REMINDER',
@@ -29,7 +29,7 @@ const triggerSchema = z.object({
   ]),
   recipient: z.string().min(8),
   variables: z.record(z.any()),
-  accountId: z.string().uuid().optional(),
+  accountId: z.string().min(1).optional(),
   customTemplate: z.string().optional()
 });
 

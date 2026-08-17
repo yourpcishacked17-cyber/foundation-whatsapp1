@@ -4,7 +4,7 @@ import { MessagesService } from './messages.service.js';
 import { AuthenticatedRequest } from '../../middleware/auth.js';
 
 const sendMessageSchema = z.object({
-  accountId: z.string().uuid('Invalid account UUID'),
+  accountId: z.string().min(1, 'Account ID is required'),
   recipient: z.string().min(8, 'Recipient phone number is required'),
   messageBody: z.string().min(1, 'Message body cannot be empty'),
   messageType: z.enum(['TEXT', 'IMAGE', 'DOCUMENT', 'TEMPLATE', 'LOCATION']).optional(),
@@ -12,7 +12,7 @@ const sendMessageSchema = z.object({
 });
 
 const bulkSendSchema = z.object({
-  accountId: z.string().uuid('Invalid account UUID'),
+  accountId: z.string().min(1, 'Account ID is required'),
   messages: z.array(z.object({
     recipient: z.string().min(8),
     messageBody: z.string().min(1),
@@ -21,7 +21,7 @@ const bulkSendSchema = z.object({
 });
 
 const scheduleSchema = z.object({
-  accountId: z.string().uuid('Invalid account UUID'),
+  accountId: z.string().min(1, 'Account ID is required'),
   recipient: z.string().min(8),
   messageBody: z.string().min(1),
   scheduledAt: z.string().refine(val => !isNaN(Date.parse(val)), { message: 'Invalid ISO date string' }),
@@ -79,16 +79,19 @@ export class MessagesController {
 
   static async list(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const accountId = req.query.accountId as string;
-      const status = req.query.status as any;
-      const limit = req.query.limit ? Number(req.query.limit) : 50;
-      const offset = req.query.offset ? Number(req.query.offset) : 0;
+      const { accountId, status, recipient, limit, offset } = req.query;
 
-      const result = await MessagesService.listMessages({ accountId, status, limit, offset });
+      const messages = await MessagesService.listMessages({
+        accountId: accountId as string,
+        status: status as string,
+        recipient: recipient as string,
+        limit: limit ? parseInt(limit as string, 10) : 50,
+        offset: offset ? parseInt(offset as string, 10) : 0
+      });
 
       res.json({
         success: true,
-        data: result,
+        data: messages,
         error: null,
         requestId: req.requestId
       });
@@ -113,10 +116,10 @@ export class MessagesController {
 
   static async retry(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const retried = await MessagesService.retryMessage(req.params.id);
+      const result = await MessagesService.retryMessage(req.params.id);
       res.json({
         success: true,
-        data: retried,
+        data: result,
         error: null,
         requestId: req.requestId
       });
