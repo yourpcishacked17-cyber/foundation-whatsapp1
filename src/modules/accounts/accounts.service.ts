@@ -166,13 +166,22 @@ export class AccountsService {
         connected = account.connected;
         qrCode = account.qrCode;
       }
-    } catch {
-      const mem = fallbackAccounts.get(id);
-      if (mem) {
-        name = mem.name;
-        status = mem.status;
-        connected = mem.connected;
-        qrCode = mem.qrCode;
+    } catch {}
+
+    const mem = fallbackAccounts.get(id);
+    if (mem) {
+      name = mem.name || name;
+      status = mem.status || status;
+      connected = mem.connected || connected;
+      if (mem.qrCode) qrCode = mem.qrCode;
+    }
+
+    if (!qrCode) {
+      for (const acc of fallbackAccounts.values()) {
+        if (acc.qrCode) {
+          qrCode = acc.qrCode;
+          break;
+        }
       }
     }
 
