@@ -94,4 +94,19 @@ export class AccountsController {
       next(error);
     }
   }
+
+  static async confirm(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const phoneNumber = req.body.phoneNumber || '923001234567';
+      const result = await AccountsService.confirmConnected(req.params.id, phoneNumber);
+      res.json({
+        success: true,
+        data: result,
+        error: null,
+        requestId: req.requestId
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

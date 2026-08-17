@@ -11,6 +11,7 @@ router.get('/', AccountsController.list);
 router.get('/:id', AccountsController.getById);
 router.post('/:id/connect', AccountsController.connect);
 router.get('/:id/qr', AccountsController.getQr);
+router.post('/:id/confirm', AccountsController.confirm);
 router.post('/:id/disconnect', AccountsController.disconnect);
 
 export default router;
