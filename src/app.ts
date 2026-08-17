@@ -35,10 +35,11 @@ export function createApp(): Express {
   // 2. Base Index Route
   app.get('/', (req: Request, res: Response) => {
     res.json({
+      success: true,
       service: 'tfc-whatsapp-service',
       description: 'The Foundation Collegiate WhatsApp Automation Microservice API',
       version: '1.0.0',
-      documentation: '/api/v1/health',
+      health: '/api/v1/health',
       timestamp: new Date().toISOString()
     });
   });
@@ -68,3 +69,6 @@ export function createApp(): Express {
 
   return app;
 }
+
+const app = createApp();
+export default app;
