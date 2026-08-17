@@ -211,7 +211,7 @@ export class MessagesService {
     const mem = memoryMessages.find(m => m.id === id);
     if (mem) return mem;
 
-    throw new AppError(404, 'NOT_FOUND', `Message "${id}" not found`);
+    throw new AppError(404, 'VALIDATION_ERROR', `Message "${id}" not found`);
   }
 
   static async retryMessage(id: string) {
