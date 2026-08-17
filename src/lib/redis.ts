@@ -2,15 +2,21 @@ import { Redis } from 'ioredis';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
 
+let errorLogged = false;
+
 export const redisConnection = new Redis(env.REDIS_URL || 'redis://localhost:6379', {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: true,
   retryStrategy(times) {
-    if (process.env.VERCEL && times > 2) {
-      return null; // Stop reconnect loop on serverless lambda if Redis not configured
+    if (times > 3) {
+      if (!errorLogged) {
+        logger.info('ℹ️ Redis unavailable, operating with in-memory state');
+        errorLogged = true;
+      }
+      return null; // Stop reconnect loop to keep logs clean
     }
-    const delay = Math.min(times * 100, 3000);
+    const delay = Math.min(times * 100, 2000);
     return delay;
   },
 });
@@ -20,5 +26,8 @@ redisConnection.on('connect', () => {
 });
 
 redisConnection.on('error', (err) => {
-  logger.warn({ err: err.message }, 'Redis connection unavailable or reconnecting');
+  if (!errorLogged) {
+    logger.warn({ err: err.message }, 'Redis optional connection unavailable');
+    errorLogged = true;
+  }
 });
