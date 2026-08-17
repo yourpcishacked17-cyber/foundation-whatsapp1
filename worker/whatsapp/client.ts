@@ -172,6 +172,41 @@ export class WhatsAppClient {
     return sock;
   }
 
+  async requestPairingCode(phoneNumber: string): Promise<string> {
+    if (!this.socket) {
+      await this.initialize();
+    }
+
+    if (!this.socket) {
+      throw new Error('Failed to initialize WhatsApp socket for pairing');
+    }
+
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (!this.socket.authState?.creds?.registered) {
+      const code = await this.socket.requestPairingCode(cleanPhone);
+      logger.info({ accountId: this.accountId, cleanPhone, code }, '⚡ Genuine WhatsApp Pairing Code received from WhatsApp servers');
+      return code;
+    }
+
+    throw new Error('WhatsApp account is already registered and authenticated');
+  }
+
+  getConnectionDiagnostics() {
+    const isSocketOpen = Boolean(this.socket && (this.socket.ws as any)?.isOpen);
+    const userJid = this.socket?.user?.id || null;
+    const phone = userJid ? (userJid.split(':')[0] || userJid.split('@')[0]) : null;
+    const authenticated = Boolean(userJid);
+
+    return {
+      socketConnected: isSocketOpen,
+      authenticated,
+      userJid,
+      phoneNumber: phone,
+      reconnectAttempts: this.reconnectAttempts,
+      isConnecting: this.isConnecting
+    };
+  }
+
   async sendTextMessage(to: string, message: string): Promise<proto.WebMessageInfo | null> {
     if (!this.socket) {
       throw new Error('WhatsApp client is not connected.');

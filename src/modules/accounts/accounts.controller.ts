@@ -81,9 +81,10 @@ export class AccountsController {
     }
   }
 
-  static async disconnect(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  static async requestPairingCode(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const result = await AccountsService.triggerDisconnect(req.params.id);
+      const phoneNumber = req.body.phoneNumber || '923333439458';
+      const result = await AccountsService.requestPairingCode(req.params.id, phoneNumber);
       res.json({
         success: true,
         data: result,
@@ -95,10 +96,23 @@ export class AccountsController {
     }
   }
 
-  static async confirm(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  static async checkConnection(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const phoneNumber = req.body.phoneNumber || '923001234567';
-      const result = await AccountsService.confirmConnected(req.params.id, phoneNumber);
+      const result = await AccountsService.checkConnection(req.params.id);
+      res.json({
+        success: true,
+        data: result,
+        error: null,
+        requestId: req.requestId
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async disconnect(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await AccountsService.triggerDisconnect(req.params.id);
       res.json({
         success: true,
         data: result,

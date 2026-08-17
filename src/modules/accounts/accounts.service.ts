@@ -152,18 +152,33 @@ export class AccountsService {
     let status = 'CONNECTING';
     let connected = false;
     let qrCode: string | null = null;
+    let phoneNumber: string | null = null;
+
+    // Check live socket first
+    try {
+      const client = await WhatsAppClientManager.getClient(id);
+      const diag = client.getConnectionDiagnostics();
+      if (diag.authenticated && diag.socketConnected) {
+        connected = true;
+        status = 'CONNECTED';
+        phoneNumber = diag.phoneNumber;
+      }
+    } catch {}
 
     // Check DB
     try {
       const account = await prisma.whatsAppAccount.findUnique({
         where: { id },
-        select: { id: true, name: true, status: true, connected: true, qrCode: true }
+        select: { id: true, name: true, status: true, connected: true, qrCode: true, phoneNumber: true }
       });
 
       if (account) {
         name = account.name;
-        status = account.status;
-        connected = account.connected;
+        if (!connected) {
+          status = account.status;
+          connected = account.connected;
+          phoneNumber = account.phoneNumber;
+        }
         qrCode = account.qrCode;
       }
     } catch {}
@@ -171,21 +186,15 @@ export class AccountsService {
     const mem = fallbackAccounts.get(id);
     if (mem) {
       name = mem.name || name;
-      status = mem.status || status;
-      connected = mem.connected || connected;
+      if (!connected) {
+        status = mem.status || status;
+        connected = mem.connected || connected;
+        phoneNumber = mem.phoneNumber || phoneNumber;
+      }
       if (mem.qrCode) qrCode = mem.qrCode;
     }
 
-    if (!qrCode) {
-      for (const acc of fallbackAccounts.values()) {
-        if (acc.qrCode) {
-          qrCode = acc.qrCode;
-          break;
-        }
-      }
-    }
-
-    // Ensure Baileys client is active
+    // Ensure Baileys client is running if disconnected
     if (!connected && !qrCode) {
       WhatsAppClientManager.getClient(id).catch(() => {});
     }
@@ -193,35 +202,88 @@ export class AccountsService {
     return {
       accountId: id,
       name,
-      status,
+      status: connected ? 'CONNECTED' : (qrCode ? 'QR_READY' : status),
       connected,
+      phoneNumber,
       qrCode,
-      pairingCode: 'TFC-89X2-M4L9'
+      pairingCode: null
     };
   }
 
-  static async confirmConnected(id: string, phoneNumber: string) {
-    try {
-      await prisma.whatsAppAccount.update({
-        where: { id },
-        data: {
-          status: 'CONNECTED',
-          connected: true,
-          phoneNumber,
-          lastSeenAt: new Date()
-        }
-      });
-    } catch {
-      const mem = fallbackAccounts.get(id);
-      if (mem) {
-        mem.status = 'CONNECTED';
-        mem.connected = true;
-        mem.phoneNumber = phoneNumber;
-        mem.lastSeenAt = new Date().toISOString();
-      }
+  static async requestPairingCode(id: string, phoneNumber: string) {
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Please provide a valid international WhatsApp phone number');
     }
 
-    return { status: 'CONNECTED', message: 'Account marked as connected.' };
+    logger.info({ accountId: id, cleanPhone }, 'Requesting genuine WhatsApp pairing code from Baileys');
+
+    const client = await WhatsAppClientManager.getClient(id);
+    const code = await client.requestPairingCode(cleanPhone);
+
+    const formattedCode = code.length === 8 ? `${code.substring(0, 4)}-${code.substring(4)}` : code;
+
+    // Update in-memory fallback
+    const mem = fallbackAccounts.get(id);
+    if (mem) {
+      mem.status = 'PAIRING';
+      mem.phoneNumber = cleanPhone;
+      mem.pairingCode = formattedCode;
+    }
+
+    // Update DB
+    await prisma.whatsAppAccount.update({
+      where: { id },
+      data: {
+        status: 'CONNECTING',
+        phoneNumber: cleanPhone
+      }
+    }).catch(() => {});
+
+    return {
+      accountId: id,
+      phoneNumber: cleanPhone,
+      pairingCode: formattedCode,
+      status: 'PAIRING',
+      expiresInSeconds: 60,
+      expiresAt: new Date(Date.now() + 60000).toISOString()
+    };
+  }
+
+  static async checkConnection(id: string) {
+    const client = await WhatsAppClientManager.getClient(id);
+    const diag = client.getConnectionDiagnostics();
+
+    const isConnected = diag.socketConnected && diag.authenticated;
+    const status = isConnected ? 'CONNECTED' : (diag.isConnecting ? 'CONNECTING' : 'DISCONNECTED');
+
+    // Sync DB & Memory
+    const mem = fallbackAccounts.get(id);
+    if (mem) {
+      mem.status = status;
+      mem.connected = isConnected;
+      if (diag.phoneNumber) mem.phoneNumber = diag.phoneNumber;
+      if (isConnected) mem.qrCode = null;
+    }
+
+    await prisma.whatsAppAccount.update({
+      where: { id },
+      data: {
+        status: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+        connected: isConnected,
+        phoneNumber: diag.phoneNumber || undefined,
+        qrCode: isConnected ? null : undefined,
+        lastSeenAt: isConnected ? new Date() : undefined
+      }
+    }).catch(() => {});
+
+    return {
+      accountId: id,
+      status,
+      connected: isConnected,
+      diagnostics: diag,
+      timestamp: new Date().toISOString()
+    };
   }
 
   static async triggerDisconnect(id: string) {
