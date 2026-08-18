@@ -58,7 +58,7 @@ export class WhatsAppClient {
     // Handle credentials updates
     sock.ev.on('creds.update', saveCreds);
 
-    // Handle Inbound Messages
+    // Handle Inbound and Outbound WhatsApp Messages
     sock.ev.on('messages.upsert', async (chatUpdate) => {
       try {
         const { messages } = chatUpdate;
@@ -66,12 +66,13 @@ export class WhatsAppClient {
 
         for (const msg of messages) {
           const remoteJid = msg.key.remoteJid || '';
-          // Ignore messages from self, status broadcasts, or group messages
-          if (msg.key.fromMe || remoteJid.includes('status@broadcast') || remoteJid.includes('@g.us')) {
+          // Ignore status broadcasts or group messages
+          if (remoteJid.includes('status@broadcast') || remoteJid.includes('@g.us')) {
             continue;
           }
 
-          const phone = remoteJid.replace('@s.whatsapp.net', '');
+          const isFromMe = Boolean(msg.key.fromMe);
+          const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '');
           const text = msg.message?.conversation ||
                        msg.message?.extendedTextMessage?.text ||
                        msg.message?.imageMessage?.caption ||
@@ -89,21 +90,22 @@ export class WhatsAppClient {
           const pushName = msg.pushName || null;
           const messageId = msg.key.id || `msg_${Date.now()}`;
 
-          logger.info({ phone, messageId, messageType, text: text.slice(0, 50) }, '⚡ [INBOUND WHATSAPP EVENT] Message received on Baileys socket');
+          logger.info({ phone, isFromMe, messageId, messageType, text: text.slice(0, 50) }, '⚡ [WHATSAPP EVENT] Message on Baileys socket');
 
           const record = {
-            id: `msg_in_${messageId}`,
+            id: isFromMe ? `msg_out_${messageId}` : `msg_in_${messageId}`,
             accountId: this.accountId,
-            sender: phone,
-            recipient: 'TFC_OFFICIAL',
-            from: phone,
+            sender: isFromMe ? 'TFC_OFFICIAL' : phone,
+            recipient: isFromMe ? phone : 'TFC_OFFICIAL',
+            from: isFromMe ? 'TFC_OFFICIAL' : phone,
+            to: isFromMe ? phone : 'TFC_OFFICIAL',
             messageBody: text || `[${messageType.toUpperCase()}]`,
             messageType: messageType.toUpperCase(),
             status: 'DELIVERED',
             providerMessageId: messageId,
             sentAt: new Date(timestamp * 1000).toISOString(),
             createdAt: new Date(timestamp * 1000).toISOString(),
-            direction: 'inbound',
+            direction: isFromMe ? 'outbound' : 'inbound',
             metadata: { pushName, rawMessage: msg.message }
           };
 
@@ -122,20 +124,23 @@ export class WhatsAppClient {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  event: 'MESSAGE_RECEIVED',
+                  event: isFromMe ? 'MESSAGE_SENT' : 'MESSAGE_RECEIVED',
+                  direction: isFromMe ? 'outbound' : 'inbound',
                   data: {
                     id: messageId,
-                    from: phone,
-                    sender: phone,
+                    from: isFromMe ? 'TFC_OFFICIAL' : phone,
+                    sender: isFromMe ? 'TFC_OFFICIAL' : phone,
+                    recipient: isFromMe ? phone : 'TFC_OFFICIAL',
                     remoteJid,
                     pushName,
                     text,
                     timestamp,
+                    direction: isFromMe ? 'outbound' : 'inbound',
                     message: msg.message
                   }
                 })
               });
-              logger.info({ whUrl, status: res.status }, 'Webhook dispatched successfully to TFC Portal');
+              logger.info({ whUrl, status: res.status, isFromMe }, 'Webhook dispatched successfully to TFC Portal');
             } catch (whErr: any) {
               logger.warn({ whUrl, err: whErr.message }, 'Failed to dispatch webhook to TFC Portal');
             }
