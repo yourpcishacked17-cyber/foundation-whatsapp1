@@ -322,16 +322,54 @@ export class WhatsAppClient {
     };
   }
 
+  resolveJid(to: string): string {
+    if (to.includes('@')) return to;
+    const cleanDigits = to.replace(/\D/g, '');
+    if (cleanDigits.length >= 14) {
+      return `${cleanDigits}@lid`;
+    }
+    let norm = cleanDigits;
+    if (norm.startsWith('03')) norm = '92' + norm.slice(1);
+    else if (norm.startsWith('0092')) norm = norm.slice(2);
+    return `${norm}@s.whatsapp.net`;
+  }
+
   async sendTextMessage(to: string, message: string): Promise<proto.WebMessageInfo | null> {
     if (!this.socket) {
       throw new Error('WhatsApp client is not connected.');
     }
 
-    const cleanPhone = to.replace(/\D/g, '');
-    const jid = `${cleanPhone}@s.whatsapp.net`;
-
-    logger.info({ accountId: this.accountId, jid }, 'Sending WhatsApp text message');
+    const jid = this.resolveJid(to);
+    logger.info({ accountId: this.accountId, jid, to }, 'Sending WhatsApp text message');
     const result = await this.socket.sendMessage(jid, { text: message });
+    return result || null;
+  }
+
+  async sendMediaMessage(to: string, mediaUrl: string, caption?: string, mimeType?: string, fileName?: string): Promise<proto.WebMessageInfo | null> {
+    if (!this.socket) {
+      throw new Error('WhatsApp client is not connected.');
+    }
+
+    const jid = this.resolveJid(to);
+    logger.info({ accountId: this.accountId, jid, mediaUrl, mimeType }, 'Sending WhatsApp media message');
+
+    let msgPayload: any = {};
+    if (mimeType?.startsWith('image/')) {
+      msgPayload = { image: { url: mediaUrl }, caption: caption || undefined };
+    } else if (mimeType?.startsWith('audio/')) {
+      msgPayload = { audio: { url: mediaUrl }, mimetype: mimeType || 'audio/mp4', ptt: false };
+    } else if (mimeType?.startsWith('video/')) {
+      msgPayload = { video: { url: mediaUrl }, caption: caption || undefined };
+    } else {
+      msgPayload = { 
+        document: { url: mediaUrl }, 
+        mimetype: mimeType || 'application/pdf', 
+        fileName: fileName || 'document.pdf', 
+        caption: caption || undefined 
+      };
+    }
+
+    const result = await this.socket.sendMessage(jid, msgPayload);
     return result || null;
   }
 

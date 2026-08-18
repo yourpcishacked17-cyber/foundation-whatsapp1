@@ -39,8 +39,18 @@ export class MessagesService {
     messageType?: 'TEXT' | 'IMAGE' | 'DOCUMENT' | 'TEMPLATE' | 'LOCATION';
     metadata?: Record<string, any>;
   }) {
-    const cleanedRecipient = this.cleanPhoneNumber(data.recipient);
-    if (!cleanedRecipient || cleanedRecipient.length < 10) {
+    const rawRecipient = data.recipient.trim();
+    let cleanedRecipient = rawRecipient;
+    if (!rawRecipient.includes('@')) {
+      const cleanDigits = rawRecipient.replace(/\D/g, '');
+      if (cleanDigits.length >= 14) {
+        cleanedRecipient = cleanDigits;
+      } else {
+        cleanedRecipient = this.cleanPhoneNumber(rawRecipient);
+      }
+    }
+
+    if (!cleanedRecipient || cleanedRecipient.length < 9) {
       throw new AppError(400, 'VALIDATION_ERROR', `Invalid recipient phone number: ${data.recipient}`);
     }
 
@@ -52,8 +62,19 @@ export class MessagesService {
     try {
       const client = await WhatsAppClientManager.getClient(data.accountId);
       if (client?.socket) {
-        const sendResult = await client.sendTextMessage(cleanedRecipient, data.messageBody);
-        providerMessageId = sendResult?.key?.id || null;
+        if (data.metadata?.attachmentUrl) {
+          const sendResult = await client.sendMediaMessage(
+            cleanedRecipient,
+            data.metadata.attachmentUrl,
+            data.messageBody,
+            data.metadata.attachmentMimeType,
+            data.metadata.attachmentName
+          );
+          providerMessageId = sendResult?.key?.id || null;
+        } else {
+          const sendResult = await client.sendTextMessage(cleanedRecipient, data.messageBody);
+          providerMessageId = sendResult?.key?.id || null;
+        }
         logger.info({ messageId, recipient: cleanedRecipient, providerMessageId }, 'Delivered live via active WhatsApp Baileys socket');
       }
     } catch (sendErr: any) {
