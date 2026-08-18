@@ -151,6 +151,46 @@ export class WhatsAppClient {
       }
     });
 
+    // Handle delivery & read status updates (single tick, double tick, blue ticks)
+    sock.ev.on('messages.update', async (updates) => {
+      try {
+        for (const update of updates) {
+          const providerMessageId = update.key.id;
+          const statusNum = update.update.status;
+          let statusStr: 'sent' | 'delivered' | 'read' = 'sent';
+          if (statusNum === 3) statusStr = 'delivered';
+          else if (statusNum === 4) statusStr = 'read';
+          else continue;
+
+          logger.info({ providerMessageId, statusNum, statusStr }, '⚡ [STATUS UPDATE] Message receipt updated on WhatsApp socket');
+
+          const webhookUrls = [
+            'https://foundation-collegiate.vercel.app/api/admin/whatsapp/webhook',
+            process.env.WEBHOOK_URL
+          ].filter(Boolean);
+
+          for (const whUrl of webhookUrls) {
+            try {
+              await fetch(whUrl!, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  event: 'MESSAGE_STATUS_UPDATE',
+                  data: {
+                    id: providerMessageId,
+                    providerMessageId,
+                    status: statusStr
+                  }
+                })
+              });
+            } catch {}
+          }
+        }
+      } catch (err: any) {
+        logger.error({ err: err.message }, 'Error in messages.update handler');
+      }
+    });
+
     // Handle connection updates
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
