@@ -9,6 +9,7 @@ import { WhatsAppSessionStore } from './sessionStore.js';
 import { prisma, isPrismaAvailable } from '../../src/lib/prisma.js';
 import { logger } from '../../src/lib/logger.js';
 import { fallbackAccounts } from '../../src/modules/accounts/accounts.service.js';
+import { MessagesService } from '../../src/modules/messages/messages.service.js';
 
 export interface WhatsAppClientCallbacks {
   onQrCode?: (qrBase64: string) => void;
@@ -56,6 +57,94 @@ export class WhatsAppClient {
 
     // Handle credentials updates
     sock.ev.on('creds.update', saveCreds);
+
+    // Handle Inbound Messages
+    sock.ev.on('messages.upsert', async (chatUpdate) => {
+      try {
+        const { messages } = chatUpdate;
+        if (!messages || messages.length === 0) return;
+
+        for (const msg of messages) {
+          const remoteJid = msg.key.remoteJid || '';
+          // Ignore messages from self, status broadcasts, or group messages
+          if (msg.key.fromMe || remoteJid.includes('status@broadcast') || remoteJid.includes('@g.us')) {
+            continue;
+          }
+
+          const phone = remoteJid.replace('@s.whatsapp.net', '');
+          const text = msg.message?.conversation ||
+                       msg.message?.extendedTextMessage?.text ||
+                       msg.message?.imageMessage?.caption ||
+                       msg.message?.videoMessage?.caption ||
+                       msg.message?.documentMessage?.caption ||
+                       '';
+
+          let messageType = 'text';
+          if (msg.message?.imageMessage) messageType = 'image';
+          else if (msg.message?.documentMessage) messageType = 'document';
+          else if (msg.message?.audioMessage) messageType = 'audio';
+          else if (msg.message?.videoMessage) messageType = 'video';
+
+          const timestamp = msg.messageTimestamp ? Number(msg.messageTimestamp) : Math.floor(Date.now() / 1000);
+          const pushName = msg.pushName || null;
+          const messageId = msg.key.id || `msg_${Date.now()}`;
+
+          logger.info({ phone, messageId, messageType, text: text.slice(0, 50) }, '⚡ [INBOUND WHATSAPP EVENT] Message received on Baileys socket');
+
+          const record = {
+            id: `msg_in_${messageId}`,
+            accountId: this.accountId,
+            sender: phone,
+            recipient: 'TFC_OFFICIAL',
+            from: phone,
+            messageBody: text || `[${messageType.toUpperCase()}]`,
+            messageType: messageType.toUpperCase(),
+            status: 'DELIVERED',
+            providerMessageId: messageId,
+            sentAt: new Date(timestamp * 1000).toISOString(),
+            createdAt: new Date(timestamp * 1000).toISOString(),
+            direction: 'inbound',
+            metadata: { pushName, rawMessage: msg.message }
+          };
+
+          // Ingest to local microservice memory
+          MessagesService.ingestInboundMessage(record);
+
+          // Dispatch Webhook to TFC Portal on Vercel
+          const webhookUrls = [
+            'https://foundation-collegiate.vercel.app/api/admin/whatsapp/webhook',
+            process.env.WEBHOOK_URL
+          ].filter(Boolean);
+
+          for (const whUrl of webhookUrls) {
+            try {
+              const res = await fetch(whUrl!, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  event: 'MESSAGE_RECEIVED',
+                  data: {
+                    id: messageId,
+                    from: phone,
+                    sender: phone,
+                    remoteJid,
+                    pushName,
+                    text,
+                    timestamp,
+                    message: msg.message
+                  }
+                })
+              });
+              logger.info({ whUrl, status: res.status }, 'Webhook dispatched successfully to TFC Portal');
+            } catch (whErr: any) {
+              logger.warn({ whUrl, err: whErr.message }, 'Failed to dispatch webhook to TFC Portal');
+            }
+          }
+        }
+      } catch (err: any) {
+        logger.error({ err: err.message }, 'Error in messages.upsert handler');
+      }
+    });
 
     // Handle connection updates
     sock.ev.on('connection.update', async (update) => {

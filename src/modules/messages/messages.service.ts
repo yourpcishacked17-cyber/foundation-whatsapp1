@@ -9,6 +9,14 @@ import { fallbackAccounts } from '../accounts/accounts.service.js';
 const memoryMessages: any[] = [];
 
 export class MessagesService {
+  static ingestInboundMessage(record: any) {
+    const existing = memoryMessages.find(m => m.providerMessageId && m.providerMessageId === record.providerMessageId);
+    if (!existing) {
+      memoryMessages.unshift(record);
+      if (memoryMessages.length > 300) memoryMessages.pop();
+    }
+  }
+
   /**
    * Normalize Pakistani and international phone numbers to WhatsApp JID format
    */
